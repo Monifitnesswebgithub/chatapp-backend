@@ -1,4 +1,5 @@
 require("dotenv").config();
+
 const express = require("express");
 const http = require("http");
 const cors = require("cors");
@@ -8,27 +9,39 @@ const { v4: uuidv4 } = require("uuid");
 const pool = require("./db");
 
 const PORT = process.env.PORT || 3000;
-const app = express();
 
-app.use(cors());
+const app = express();
+app.use(cors({
+  origin: "*",
+  methods: ["GET", "POST"]
+}));
 app.use(express.json());
-app.get("/", (req, res) => {
-  res.json({
-    status: "Backend running 🚀",
-    service: "Realtime Chat API"
-  });
-});
 
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: "*" } });
+const io = new Server(server, {
+  cors: { origin: "*" }
+});
 
-// ---------------- DB HELPERS ----------------
+
+// ---------------------- DB HELPERS ----------------------
 async function findUserByUsername(username) {
   const [rows] = await pool.query(
     "SELECT * FROM users WHERE username = ? LIMIT 1",
     [username]
   );
   return rows[0] || null;
+}
+
+async function createUser({ username, password }) {
+  const id = uuidv4();
+  const hashed = bcrypt.hashSync(password, 10);
+
+  await pool.query(
+    "INSERT INTO users (id, username, password) VALUES (?, ?, ?)",
+    [id, username, hashed]
+  );
+
+  return { id, username };
 }
 
 async function saveMessage({ id, room, username, text }) {
@@ -38,58 +51,82 @@ async function saveMessage({ id, room, username, text }) {
   );
 }
 
-async function getMessagesForRoom(room) {
+async function getMessages(room) {
   const [rows] = await pool.query(
-    "SELECT * FROM messages WHERE room = ? ORDER BY time ASC LIMIT 500",
+    "SELECT * FROM messages WHERE room = ? ORDER BY time ASC",
     [room]
   );
   return rows;
 }
 
-// ---------------- SOCKET.IO ----------------
-const onlineByRoom = {};
+// ---------------------- ROUTES ----------------------
+app.get("/", (req, res) => {
+  res.json({ status: "Backend running" });
+});
 
-io.on("connection", (socket) => {
-  console.log("socket connected", socket.id);
+app.post("/signup", async (req, res) => {
+  try {
+    const { username, password } = req.body;
 
-  // PUBLIC ROOM
-  socket.on("join-room", async ({ room = "global", username }) => {
-    if (!username) return;
+    if (!username || !password)
+      return res.status(400).json({ error: "Missing fields" });
 
-    socket.join(room);
-    socket.data.username = username;
+    const exists = await findUserByUsername(username);
+    if (exists)
+      return res.status(409).json({ error: "User exists" });
 
-    onlineByRoom[room] = onlineByRoom[room] || new Set();
-    onlineByRoom[room].add(username);
+    const user = await createUser({ username, password });
+    res.json({ success: true, user });
 
-    io.to(room).emit("online-users", [...onlineByRoom[room]]);
-    socket.emit("history", await getMessagesForRoom(room));
-  });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
 
-  // 🔥 DISCORD-STYLE GROUP ROOM
-  socket.on("join-group-room", async ({ roomName, username }) => {
-    if (!roomName || !username) return;
+app.post("/login", async (req, res) => {
+  try {
+    const { username, password } = req.body;
 
-    const room = `room:${roomName}`;
-    socket.join(room);
-    socket.data.username = username;
+    const user = await findUserByUsername(username);
+    if (!user)
+      return res.status(401).json({ error: "Invalid credentials" });
 
-    socket.emit("history", await getMessagesForRoom(room));
-    io.to(room).emit("system", {
-      text: `${username} joined #${roomName}`,
+    const ok = bcrypt.compareSync(password, user.password);
+    if (!ok)
+      return res.status(401).json({ error: "Invalid credentials" });
+
+    res.json({
+      success: true,
+      user: {
+        id: user.id,
+        username: user.username
+      }
     });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ---------------------- SOCKET.IO ----------------------
+io.on("connection", (socket) => {
+  console.log("Socket connected:", socket.id);
+
+  socket.on("join-room", async ({ room, username }) => {
+    socket.join(room);
+    const messages = await getMessages(room);
+    socket.emit("history", messages);
   });
 
-  // SEND MESSAGE (works for all room types)
   socket.on("chat-message", async ({ room, text, username }) => {
-    if (!room || !text || !username) return;
-
     const msg = {
       id: uuidv4(),
       room,
       username,
       text,
-      time: new Date(),
+      time: new Date()
     };
 
     await saveMessage(msg);
@@ -97,10 +134,11 @@ io.on("connection", (socket) => {
   });
 
   socket.on("disconnect", () => {
-    console.log("socket disconnected", socket.id);
+    console.log("Socket disconnected:", socket.id);
   });
 });
 
-server.listen(PORT, () =>
-  console.log(`Server running on port ${PORT}`)
-);
+// ---------------------- START ----------------------
+server.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
