@@ -12,6 +12,12 @@ const app = express();
 
 app.use(cors());
 app.use(express.json());
+app.get("/", (req, res) => {
+  res.json({
+    status: "Backend running 🚀",
+    service: "Realtime Chat API"
+  });
+});
 
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
