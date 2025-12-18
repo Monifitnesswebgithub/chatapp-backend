@@ -19,8 +19,16 @@ app.use(express.json());
 
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: { origin: "*" }
+  cors: {
+    origin: [
+      "http://localhost:3001",
+      "http://localhost:3000",
+      "https://gilded-jelly-1e0185.netlify.app"
+    ],
+    methods: ["GET", "POST"]
+  }
 });
+
 
 
 // ---------------------- DB HELPERS ----------------------
