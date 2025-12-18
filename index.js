@@ -32,11 +32,15 @@ io.on("connection", (socket) => {
   });
 
   socket.on("chat-message", (msg) => {
-    io.to(msg.room).emit("chat-message", {
-      ...msg,
-      id: Date.now()
-    });
-  });
+   
+  });io.to(msg.room).emit("chat-message", {
+  id: Date.now(),
+  room: msg.room,
+  username: msg.username,
+  text: msg.text,
+  time: new Date()
+});
+
 
   socket.on("disconnect", () => {
     console.log("Socket disconnected:", socket.id);
