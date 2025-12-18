@@ -21,13 +21,14 @@ const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
     origin: [
-      "http://localhost:3001",
       "http://localhost:3000",
+      "http://localhost:3001",
       "https://gilded-jelly-1e0185.netlify.app"
     ],
     methods: ["GET", "POST"]
   }
 });
+
 
 
 
@@ -148,5 +149,6 @@ io.on("connection", (socket) => {
 
 // ---------------------- START ----------------------
 server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log("Server running on port", PORT);
 });
+
